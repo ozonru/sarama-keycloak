@@ -31,5 +31,7 @@ jobs:
     - name: Test
       run: go test -v .
 
-    - name: Run golangci-lint
-      uses: actions-contrib/golangci-lint@v1
+    - name: Lint
+      run: |
+        curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh -s -- -b $(go env GOPATH)/bin v1.26.0
+        $(go env GOPATH)/bin/golangci-lint run ./...
