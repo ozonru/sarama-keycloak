@@ -1,2 +1,2 @@
 # sarama-keycloack
-Keycloak auth provider for Sarama
+Keycloak auth provider for Sarama.
