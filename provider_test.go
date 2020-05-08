@@ -152,6 +152,8 @@ func newProvider(t *testing.T) (*Provider, *GoCloakMock) {
 		ClientSecret:     clientSecret,
 		Realm:            realm,
 		KeycloakHostPort: "https://localhost",
+		KeycloakTimeout:  5 * time.Second,
+		RefreshThreshold: 5 * time.Second,
 	}
 
 	p, err := New(c)
