@@ -8,7 +8,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultRefreshThreshold = 5 * time.Second
+const (
+	defaultRefreshThreshold = 10 * time.Second
+	defaultKeycloakTimeout  = 2 * time.Second
+)
 
 var (
 	// ErrorInvalidHostPort is returned when wrong hostport is passed.
@@ -21,8 +24,10 @@ var (
 
 // Config defines configuration for Provider.
 type Config struct {
-	// KeycloakHostPort is adress where keyacloak is running.
+	// KeycloakHostPort is address where keyacloak is running.
 	KeycloakHostPort string
+	// KeycloakTimeout defines timeouts for keycloak requests.
+	KeycloakTimeout time.Duration
 
 	ClientID     string // ClientID is an OpenID client identifier.
 	ClientSecret string // ClientSecret is an OpenID client secret.
@@ -39,6 +44,10 @@ type Config struct {
 func (c *Config) applyDefaults() {
 	if c.RefreshThreshold == 0 {
 		c.RefreshThreshold = defaultRefreshThreshold
+	}
+
+	if c.KeycloakTimeout == 0 {
+		c.KeycloakTimeout = defaultKeycloakTimeout
 	}
 
 	if c.Logger == nil {

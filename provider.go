@@ -1,6 +1,7 @@
 package saramakeycloak
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 // Provider is used to use keycloak as authentication provider for kafka.
 // It implements sarama.AccessTokenProvider interface.
 type Provider struct {
-	keycloak gocloak.GoCloak
+	keycloak        gocloak.GoCloak
+	keycloakTimeout time.Duration
 
 	// credentials to authenticate in keycloak.
 	clientID     string
@@ -37,6 +39,7 @@ func New(c Config) (*Provider, error) {
 	return &Provider{
 		refreshThreshold: c.RefreshThreshold,
 		keycloak:         gocloak.NewClient(c.KeycloakHostPort),
+		keycloakTimeout:  c.KeycloakTimeout,
 		clientID:         c.ClientID,
 		clientSecret:     c.ClientSecret,
 		realm:            c.Realm,
@@ -54,7 +57,9 @@ func (p *Provider) setClient(c gocloak.GoCloak) {
 func (p *Provider) Token() (*sarama.AccessToken, error) {
 	p.logger.Debug("retrieve token attempt")
 
-	token, err := p.getActiveToken()
+	ctx, cancel := context.WithTimeout(context.Background(), p.keycloakTimeout)
+	defer cancel()
+	token, err := p.getActiveToken(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get token")
 	}
@@ -62,7 +67,7 @@ func (p *Provider) Token() (*sarama.AccessToken, error) {
 	return &sarama.AccessToken{Token: token.AccessToken}, nil
 }
 
-func (p *Provider) getActiveToken() (*gocloak.JWT, error) {
+func (p *Provider) getActiveToken(ctx context.Context) (*gocloak.JWT, error) {
 	p.tokenMu.Lock()
 	defer p.tokenMu.Unlock()
 
@@ -76,8 +81,13 @@ func (p *Provider) getActiveToken() (*gocloak.JWT, error) {
 	// if expired but refresh token is alive, than refresh it
 	if time.Now().Add(p.refreshThreshold).Before(p.refreshExpiresAt) {
 		p.logger.Debug("current token must be refreshed")
-		token, err := p.refreshToken(p.token)
+		token, err := p.refreshToken(ctx, p.token)
 		if err != nil {
+			// if refresh failed, but current token is still active return it
+			if time.Now().Before(p.expiresAt) {
+				return p.token, nil
+			}
+
 			return nil, errors.Wrap(err, "refresh failed")
 		}
 
@@ -90,7 +100,7 @@ func (p *Provider) getActiveToken() (*gocloak.JWT, error) {
 
 	// otherwise request new token
 	p.logger.Debug("request new token")
-	token, err := p.requestNewToken()
+	token, err := p.requestNewToken(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "request new token failed")
 	}
@@ -100,16 +110,39 @@ func (p *Provider) getActiveToken() (*gocloak.JWT, error) {
 	return token, nil
 }
 
-func (p *Provider) requestNewToken() (*gocloak.JWT, error) {
-	token, err := p.keycloak.LoginClient(p.clientID, p.clientSecret, p.realm)
-
-	return token, errors.Wrap(err, "gocloak: login failed")
+type tokenAsyncResult struct {
+	token *gocloak.JWT
+	err   error
 }
 
-func (p *Provider) refreshToken(old *gocloak.JWT) (*gocloak.JWT, error) {
-	token, err := p.keycloak.RefreshToken(old.RefreshToken, p.clientID, p.clientSecret, p.realm)
+func (p *Provider) requestNewToken(ctx context.Context) (*gocloak.JWT, error) {
+	resCh := make(chan tokenAsyncResult, 1)
+	go func() {
+		token, err := p.keycloak.LoginClient(p.clientID, p.clientSecret, p.realm)
+		resCh <- tokenAsyncResult{token: token, err: errors.Wrap(err, "gocloak: login failed")}
+	}()
 
-	return token, errors.Wrap(err, "gocloak: refresh failed")
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-resCh:
+		return res.token, res.err
+	}
+}
+
+func (p *Provider) refreshToken(ctx context.Context, old *gocloak.JWT) (*gocloak.JWT, error) {
+	resCh := make(chan tokenAsyncResult, 1)
+	go func() {
+		token, err := p.keycloak.RefreshToken(old.RefreshToken, p.clientID, p.clientSecret, p.realm)
+		resCh <- tokenAsyncResult{token: token, err: errors.Wrap(err, "gocloak: refresh failed")}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-resCh:
+		return res.token, res.err
+	}
 }
 
 // setToken updates current active token and calculates expirations for it.
@@ -119,5 +152,9 @@ func (p *Provider) setToken(token *gocloak.JWT) {
 	p.expiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
 	p.refreshExpiresAt = time.Now().Add(time.Duration(token.RefreshExpiresIn) * time.Second)
 
-	p.logger.Debug("token saved", zap.Time("expires_at", p.expiresAt), zap.Time("refresh_expires_at", p.refreshExpiresAt))
+	p.logger.Debug(
+		"token saved",
+		zap.Time("expires_at", p.expiresAt),
+		zap.Time("refresh_expires_at", p.refreshExpiresAt),
+	)
 }

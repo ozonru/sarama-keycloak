@@ -1,9 +1,12 @@
 package saramakeycloak
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/Nerzal/gocloak"
+	mm_gocloak "github.com/Nerzal/gocloak"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,6 +29,26 @@ func TestProviderGetNewToken(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "token", token.Token)
+}
+
+func TestProviderGetNewTokenTimeout(t *testing.T) {
+	p, mock := newProvider(t)
+	defer mock.MinimockWait(time.Second)
+
+	stopCh := make(chan struct{})
+	mock.LoginClientMock.Set(func(clientID string, clientSecre string, realm string) (*gocloak.JWT, error) {
+		<-stopCh
+
+		return newJWT("token", 0, "", 0), nil
+	})
+
+	p.keycloakTimeout = 10 * time.Millisecond
+
+	token, err := p.Token()
+	close(stopCh)
+
+	assert.Nil(t, token)
+	assert.Equal(t, context.DeadlineExceeded, errors.Cause(err))
 }
 
 func TestProviderReturnCurrentToken(t *testing.T) {
@@ -79,7 +102,33 @@ func TestProviderRefreshToken(t *testing.T) {
 	assert.Equal(t, "token-2", token.Token)
 }
 
-func TestProviderRefreshTokenFailed(t *testing.T) {
+func TestProviderRefreshTokenFailedAndCurrentIsValid(t *testing.T) {
+	p, mock := newProvider(t)
+	defer mock.MinimockWait(time.Second)
+
+	mock.LoginClientMock.Return(newJWT("token", 1, "r-token", 10), nil)
+
+	stopCh := make(chan struct{})
+	mock.RefreshTokenMock.Set(func(refreshToken string, clientID string, clientSecret string, realm string) (*mm_gocloak.JWT, error) {
+		<-stopCh
+
+		return newJWT("token-2", 0, "", 10), nil
+	})
+
+	p.keycloakTimeout = 10 * time.Millisecond
+
+	token, err := p.Token()
+	assert.NoError(t, err)
+	assert.Equal(t, "token", token.Token)
+
+	token, err = p.Token()
+	assert.NoError(t, err)
+	assert.Equal(t, "token", token.Token)
+
+	close(stopCh)
+}
+
+func TestProviderRefreshTokenFailedAndCurrentIsExpired(t *testing.T) {
 	p, mock := newProvider(t)
 	defer mock.MinimockFinish()
 

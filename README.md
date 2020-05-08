@@ -19,11 +19,14 @@ providerConfig := saramakeycloak.Config{
     Realm:             "<realm>",
 }
 
+provider, _ := saramakeycloak.New(providerConfig)
+
+
 config := sarama.NewConfig()
 // ...
 config.Net.SASL.Enable = true
 config.Net.SASL.Mechanism = sarama.SASLTypeOAuth
-config.Net.SASL.TokenProvider = saramakeycloak.NewProvider(cfg)
+config.Net.SASL.TokenProvider = provider
 
 producer, err := sarama.NewSyncProducer(
     []string{
