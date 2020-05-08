@@ -16,7 +16,7 @@ var (
 	// ErrorInvalidCredentials is returned when credentials are not passed.
 	ErrorInvalidCredentials = errors.New("clientID & clientSecret must be specified")
 	// ErrorInvalidRealm is returned when realm is not pased.
-	ErrorInvalidRealm = errors.New("Realm must be specified")
+	ErrorInvalidRealm = errors.New("realm must be specified")
 )
 
 // Config defines configuration for Provider.
