@@ -96,16 +96,27 @@ func New(c Config) (*Provider, error) {
 
 func (p *Provider) updateLoop() {
 	onTokenUpdate := func(t *time.Timer, token *token) {
-		p.token = token
-		p.tokenCond.Broadcast()
+		resetIn := p.keycloakRetryInterval
 
-		if token == nil {
-			t.Reset(p.keycloakRetryInterval)
-			return
+		if token != nil {
+			p.logger.Debug(
+				"set new token",
+				zap.String("token", token.jwt.AccessToken),
+			)
+
+			p.token = token
+
+			resetIn = time.Duration(token.jwt.ExpiresIn) * time.Second
+			if resetIn > p.refreshThreshold {
+				resetIn = resetIn - p.refreshThreshold
+			}
 		}
 
-		expiresIn := time.Duration(token.jwt.ExpiresIn) * time.Second
-		t.Reset(expiresIn - p.refreshThreshold)
+		p.tokenCond.Broadcast()
+
+		p.logger.Debug("next keycloak request scheduled", zap.Duration("reset", resetIn))
+
+		t.Reset(resetIn)
 	}
 
 	t := time.NewTimer(0)
@@ -132,7 +143,7 @@ func (p *Provider) updateLoop() {
 						onTokenUpdate(t, nil)
 						return
 					}
-					p.logger.Debug("set new token", zap.String("token", token.jwt.AccessToken))
+
 					onTokenUpdate(t, token)
 					return
 				}
@@ -146,7 +157,6 @@ func (p *Provider) updateLoop() {
 					return
 				}
 
-				p.logger.Debug("refreshed token", zap.String("token", token.jwt.AccessToken))
 				onTokenUpdate(t, token)
 			}()
 		}
