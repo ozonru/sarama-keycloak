@@ -3,7 +3,7 @@ package saramakeycloak
 import (
 	"time"
 
-	"github.com/Nerzal/gocloak"
+	"github.com/Nerzal/gocloak/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )

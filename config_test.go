@@ -36,26 +36,26 @@ func TestConfigValidate(t *testing.T) {
 	}{
 		{
 			c:   Config{},
-			err: ErrorInvalidCredentials,
+			err: errorInvalidCredentials,
 		},
 		{
 			c: Config{
 				ClientID: "<client-id>",
 			},
-			err: ErrorInvalidCredentials,
+			err: errorInvalidCredentials,
 		},
 		{
 			c: Config{
 				ClientSecret: "<client-secret>",
 			},
-			err: ErrorInvalidCredentials,
+			err: errorInvalidCredentials,
 		},
 		{
 			c: Config{
 				ClientID:     "<client-id>",
 				ClientSecret: "<client-secret>",
 			},
-			err: ErrorInvalidRealm,
+			err: errorInvalidRealm,
 		},
 		{
 			c: Config{
@@ -63,7 +63,7 @@ func TestConfigValidate(t *testing.T) {
 				ClientSecret: "<client-secret>",
 				Realm:        "<realm>",
 			},
-			err: ErrorInvalidHostPort,
+			err: errorInvalidHostPort,
 		},
 		{
 			c: Config{
@@ -72,7 +72,37 @@ func TestConfigValidate(t *testing.T) {
 				Realm:            "<realm>",
 				KeycloakHostPort: "ht\\invalid",
 			},
-			err: ErrorInvalidHostPort,
+			err: errorInvalidHostPort,
+		},
+		{
+			c: Config{
+				ClientID:         "<client-id>",
+				ClientSecret:     "<client-secret>",
+				Realm:            "<realm>",
+				KeycloakHostPort: "http://keycloak.host",
+				RefreshThreshold: -1,
+			},
+			err: errInvalidRefreshThreshold,
+		},
+		{
+			c: Config{
+				ClientID:         "<client-id>",
+				ClientSecret:     "<client-secret>",
+				Realm:            "<realm>",
+				KeycloakHostPort: "http://keycloak.host",
+				KeycloakTimeout:  -1,
+			},
+			err: errInvalidKeycloakTimeout,
+		},
+		{
+			c: Config{
+				ClientID:              "<client-id>",
+				ClientSecret:          "<client-secret>",
+				Realm:                 "<realm>",
+				KeycloakHostPort:      "http://keycloak.host",
+				KeycloakRetryInterval: -1,
+			},
+			err: errInvalidKeycloakRetryInterval,
 		},
 		{
 			c: Config{

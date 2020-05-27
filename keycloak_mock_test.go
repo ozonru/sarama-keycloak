@@ -9,7 +9,7 @@ import (
 	mm_atomic "sync/atomic"
 	mm_time "time"
 
-	"github.com/Nerzal/gocloak"
+	"github.com/Nerzal/gocloak/v5"
 	"github.com/gojuno/minimock/v3"
 )
 

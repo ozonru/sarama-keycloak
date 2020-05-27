@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Nerzal/gocloak"
+	"github.com/Nerzal/gocloak/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -93,7 +93,7 @@ func TestProviderRefreshToken(t *testing.T) {
 	assert.Equal(t, uint64(1), mock.LoginClientAfterCounter())
 }
 
-func TestProviderRefreshAttempFails(t *testing.T) {
+func TestProviderRefreshAttemptFails(t *testing.T) {
 	p, mock := newProvider(t)
 	defer p.Close()
 	defer mock.MinimockFinish()
@@ -113,8 +113,6 @@ func TestProviderRefreshAttempFails(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "token", token.Token)
 	assert.Equal(t, uint64(2), mock.LoginClientAfterCounter())
-
-	time.Sleep(time.Second)
 }
 
 // newProvider returns Provider and mocked Keycloak client.
@@ -135,7 +133,7 @@ func newProvider(t *testing.T) (*Provider, *KeycloakMock) {
 
 	mock := NewKeycloakMock(t)
 
-	p.setClient(mock)
+	p.keycloak = mock
 
 	return p, mock
 }

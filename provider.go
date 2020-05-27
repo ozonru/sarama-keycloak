@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Nerzal/gocloak"
+	"github.com/Nerzal/gocloak/v5"
 	"github.com/Shopify/sarama"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -45,8 +45,9 @@ func (t *token) toSaramaToken() *sarama.AccessToken {
 type Provider struct {
 	logger *zap.Logger
 
-	keycloak        Keycloak
-	keycloakTimeout time.Duration
+	keycloak              Keycloak
+	keycloakTimeout       time.Duration
+	keycloakRetryInterval time.Duration
 
 	// credentials to authenticate in keycloak.
 	clientID     string
@@ -74,17 +75,18 @@ func New(c Config) (*Provider, error) {
 	mu := &sync.RWMutex{}
 
 	p := &Provider{
-		refreshThreshold: c.RefreshThreshold,
-		keycloak:         &keycloakWithMetrics{gocloak.NewClient(c.KeycloakHostPort)},
-		keycloakTimeout:  c.KeycloakTimeout,
-		clientID:         c.ClientID,
-		clientSecret:     c.ClientSecret,
-		realm:            c.Realm,
-		logger:           c.Logger,
-		tokenMu:          mu,
-		tokenCond:        sync.NewCond(mu),
-		stopCh:           make(chan struct{}),
-		stopOnce:         sync.Once{},
+		refreshThreshold:      c.RefreshThreshold,
+		keycloak:              &keycloakWithMetrics{gocloak.NewClient(c.KeycloakHostPort)},
+		keycloakTimeout:       c.KeycloakTimeout,
+		keycloakRetryInterval: c.KeycloakRetryInterval,
+		clientID:              c.ClientID,
+		clientSecret:          c.ClientSecret,
+		realm:                 c.Realm,
+		logger:                c.Logger,
+		tokenMu:               mu,
+		tokenCond:             sync.NewCond(mu),
+		stopCh:                make(chan struct{}),
+		stopOnce:              sync.Once{},
 	}
 
 	go p.updateLoop()
@@ -92,23 +94,18 @@ func New(c Config) (*Provider, error) {
 	return p, nil
 }
 
-// setClient sets internal keycloak client.
-// must be used only for testing!
-func (p *Provider) setClient(c Keycloak) {
-	p.keycloak = c
-}
-
 func (p *Provider) updateLoop() {
 	onTokenUpdate := func(t *time.Timer, token *token) {
 		p.token = token
 		p.tokenCond.Broadcast()
 
-		if p.token != nil {
-			expiresIn := time.Duration(token.jwt.ExpiresIn) * time.Second
-			t.Reset(expiresIn - p.refreshThreshold)
-		} else {
-			t.Reset(100 * time.Millisecond)
+		if token == nil {
+			t.Reset(p.keycloakRetryInterval)
+			return
 		}
+
+		expiresIn := time.Duration(token.jwt.ExpiresIn) * time.Second
+		t.Reset(expiresIn - p.refreshThreshold)
 	}
 
 	t := time.NewTimer(0)
@@ -117,6 +114,7 @@ func (p *Provider) updateLoop() {
 	for {
 		select {
 		case <-p.stopCh:
+			p.logger.Warn("keycloak token provider stopped")
 			return
 		case <-t.C:
 			func() {
@@ -172,6 +170,7 @@ func (p *Provider) Token() (*sarama.AccessToken, error) {
 
 		// we don't want to block forever here.
 		if time.Since(start) > p.keycloakTimeout {
+			p.tokenMu.Unlock()
 			return nil, context.DeadlineExceeded
 		}
 	}

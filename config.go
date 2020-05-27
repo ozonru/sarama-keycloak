@@ -9,17 +9,18 @@ import (
 )
 
 const (
-	defaultRefreshThreshold = 10 * time.Second
-	defaultKeycloakTimeout  = 2 * time.Second
+	defaultRefreshThreshold      = 10 * time.Second
+	defaultKeycloakTimeout       = 2 * time.Second
+	defaultKeycloakRetryInterval = 100 * time.Millisecond
 )
 
 var (
-	// ErrorInvalidHostPort is returned when wrong hostport is passed.
-	ErrorInvalidHostPort = errors.New("keycloak hostport is invalid")
-	// ErrorInvalidCredentials is returned when credentials are not passed.
-	ErrorInvalidCredentials = errors.New("clientID & clientSecret must be specified")
-	// ErrorInvalidRealm is returned when realm is not pased.
-	ErrorInvalidRealm = errors.New("realm must be specified")
+	errorInvalidHostPort            = errors.New("keycloak hostport is invalid")
+	errorInvalidCredentials         = errors.New("clientID & clientSecret must be specified")
+	errorInvalidRealm               = errors.New("realm must be specified")
+	errInvalidRefreshThreshold      = errors.New("refresh threshold must be positive")
+	errInvalidKeycloakTimeout       = errors.New("keycloak timeout must be positive")
+	errInvalidKeycloakRetryInterval = errors.New("keycloak timeout must be positive")
 )
 
 // Config defines configuration for Provider.
@@ -28,6 +29,8 @@ type Config struct {
 	KeycloakHostPort string
 	// KeycloakTimeout defines timeouts for keycloak requests.
 	KeycloakTimeout time.Duration
+	// KeycloakRetryInterval defines retry interval between login / refresh attempts.
+	KeycloakRetryInterval time.Duration
 
 	ClientID     string // ClientID is an OpenID client identifier.
 	ClientSecret string // ClientSecret is an OpenID client secret.
@@ -50,6 +53,10 @@ func (c *Config) applyDefaults() {
 		c.KeycloakTimeout = defaultKeycloakTimeout
 	}
 
+	if c.KeycloakRetryInterval == 0 {
+		c.KeycloakRetryInterval = defaultKeycloakRetryInterval
+	}
+
 	if c.Logger == nil {
 		c.Logger = zap.NewNop()
 	}
@@ -57,15 +64,27 @@ func (c *Config) applyDefaults() {
 
 func (c Config) validate() error {
 	if c.ClientID == "" || c.ClientSecret == "" {
-		return ErrorInvalidCredentials
+		return errorInvalidCredentials
 	}
 
 	if c.Realm == "" {
-		return ErrorInvalidRealm
+		return errorInvalidRealm
 	}
 
-	if u, err := url.Parse(c.KeycloakHostPort); u.Host == "" || err != nil {
-		return ErrorInvalidHostPort
+	if u, err := url.Parse(c.KeycloakHostPort); err != nil || u.Host == "" {
+		return errorInvalidHostPort
+	}
+
+	if c.RefreshThreshold < 0 {
+		return errInvalidRefreshThreshold
+	}
+
+	if c.KeycloakTimeout < 0 {
+		return errInvalidKeycloakTimeout
+	}
+
+	if c.KeycloakRetryInterval < 0 {
+		return errInvalidKeycloakRetryInterval
 	}
 
 	return nil
